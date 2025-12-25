@@ -83,6 +83,10 @@ export async function importFromDb(): Promise<Account> {
     return await invoke('import_from_db');
 }
 
+export async function importFromCustomDb(path: string): Promise<Account> {
+    return await invoke('import_custom_db', { path });
+}
+
 export async function syncAccountFromDb(): Promise<Account | null> {
     return await invoke('sync_account_from_db');
 }

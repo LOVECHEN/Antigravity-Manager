@@ -39,13 +39,12 @@ pub fn resolve_request_config(original_model: &str, mapped_model: &str) -> Reque
         };
     }
 
-    // Strip -online suffix from original model if present
+    // Strip -online suffix from original model if present (to detect networking intent)
     let is_online_suffix = original_model.ends_with("-online");
-    let final_model = if is_online_suffix {
-        original_model.trim_end_matches("-online").to_string()
-    } else {
-        original_model.to_string()
-    };
+    
+    // The final model to send upstream should be the MAPPED model, 
+    // but we strip any legacy suffixes if they leaked into the mapping
+    let final_model = mapped_model.trim_end_matches("-online").to_string();
 
     // High-quality grounding allowlist
     let is_high_quality_model = mapped_model == "gemini-2.5-flash"

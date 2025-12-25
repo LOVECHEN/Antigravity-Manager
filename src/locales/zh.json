@@ -119,7 +119,8 @@
                 "or": "或者",
                 "scheme_b": "方案 B: 从 V1 版本备份",
                 "scheme_b_desc": "扫描 ~/.antigravity-agent 目录，批量导入旧版本的账号数据。",
-                "btn_v1": "从 V1 备份批量导入"
+                "btn_v1": "从 V1 备份批量导入",
+                "btn_custom_db": "从自定义 DB 导入"
             },
             "btn_cancel": "取消",
             "btn_confirm": "确认添加",

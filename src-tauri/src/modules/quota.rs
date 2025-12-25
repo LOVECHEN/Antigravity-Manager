@@ -72,7 +72,7 @@ async fn fetch_project_id(access_token: &str) -> Option<String> {
 }
 
 /// 查询账号配额
-pub async fn fetch_quota(access_token: &str) -> crate::error::AppResult<QuotaData> {
+pub async fn fetch_quota(access_token: &str) -> crate::error::AppResult<(QuotaData, Option<String>)> {
     use crate::error::AppError;
     crate::modules::logger::log_info("开始外部查询配额...");
     let client = create_client();
@@ -83,7 +83,7 @@ pub async fn fetch_quota(access_token: &str) -> crate::error::AppResult<QuotaDat
     
     // 2. 构建请求体
     let mut payload = serde_json::Map::new();
-    if let Some(pid) = project_id {
+    if let Some(ref pid) = project_id {
         payload.insert("project".to_string(), json!(pid));
     }
     
@@ -114,7 +114,7 @@ pub async fn fetch_quota(access_token: &str) -> crate::error::AppResult<QuotaDat
                         ));
                         let mut q = QuotaData::new();
                         q.is_forbidden = true;
-                        return Ok(q);
+                        return Ok((q, project_id));
                     }
                     
                     // 其他错误继续重试逻辑
@@ -155,7 +155,7 @@ pub async fn fetch_quota(access_token: &str) -> crate::error::AppResult<QuotaDat
                     }
                 }
                 
-                return Ok(quota_data);
+                return Ok((quota_data, project_id));
             },
             Err(e) => {
                 crate::modules::logger::log_warn(&format!("请求失败: {} (尝试 {}/{})", e, attempt, max_retries));
@@ -176,7 +176,7 @@ pub async fn fetch_all_quotas(accounts: Vec<(String, String)>) -> Vec<(String, c
     let mut results = Vec::new();
     
     for (account_id, access_token) in accounts {
-        let result = fetch_quota(&access_token).await;
+        let result = fetch_quota(&access_token).await.map(|(q, _)| q);
         results.push((account_id, result));
     }
     

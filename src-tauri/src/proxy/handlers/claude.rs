@@ -19,6 +19,8 @@ use crate::proxy::upstream::client::UpstreamClient;
 use crate::proxy::token_manager::TokenManager;
 use crate::proxy::server::AppState;
 
+const MAX_RETRY_ATTEMPTS: usize = 3;
+
 /// 处理 Claude messages 请求
 /// 
 /// 处理 Chat 消息请求流程
@@ -44,7 +46,8 @@ pub async fn handle_messages(
     };
     let query_string = if request.stream { Some("alt=sse") } else { None };
 
-    let max_attempts = token_manager.len().max(1);
+    let pool_size = token_manager.len();
+    let max_attempts = MAX_RETRY_ATTEMPTS.min(pool_size).max(1);
 
     // 准备闭包：获取凭证
     // 注意：这个闭包不能是异步的，所以我们需要在外层准备好 token
@@ -184,13 +187,22 @@ pub async fn handle_messages(
         let error_text = response.text().await.unwrap_or_else(|_| format!("HTTP {}", status));
         last_error = format!("HTTP {}: {}", status, error_text);
         
-        // 429/404/403/401 - 轮换账号重试
-        if status.as_u16() == 429 || status.as_u16() == 404 || status.as_u16() == 403 || status.as_u16() == 401 {
-            tracing::warn!("HTTP {} on attempt {}/{}, rotating account", status, attempt + 1, max_attempts);
+        let status_code = status.as_u16();
+        
+        // 只有 429 (限流), 403 (权限/地区限制) 和 401 (认证失效) 触发账号轮换
+        if status_code == 429 || status_code == 403 || status_code == 401 {
+            // 如果是 429 且标记为配额耗尽，直接报错，避免穿透整个账号池
+            if status_code == 429 && (error_text.contains("QUOTA_EXHAUSTED") || error_text.contains("quota")) {
+                error!("Claude Quota exhausted (429) on attempt {}/{}, stopping to protect pool.", attempt + 1, max_attempts);
+                return (status, error_text).into_response();
+            }
+
+            tracing::warn!("Claude Upstream {} on attempt {}/{}, rotating account", status, attempt + 1, max_attempts);
             continue;
         }
         
-        // 其他错误直接返回
+        // 404 等由于模型配置或路径错误的 HTTP 异常，直接报错，不进行无效轮换
+        error!("Claude Upstream non-retryable error {}: {}", status_code, error_text);
         return (status, error_text).into_response();
     }
     

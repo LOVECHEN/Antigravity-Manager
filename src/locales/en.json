@@ -118,7 +118,8 @@
                 "or": "OR",
                 "scheme_b": "Plan B: From V1 Backup",
                 "scheme_b_desc": "Scan ~/.antigravity-agent for V1 account data.",
-                "btn_v1": "Batch Import V1"
+                "btn_v1": "Batch Import V1",
+                "btn_custom_db": "Import Custom DB"
             },
             "btn_cancel": "Cancel",
             "btn_confirm": "Confirm",

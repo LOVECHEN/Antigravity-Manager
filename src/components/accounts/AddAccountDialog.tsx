@@ -4,6 +4,7 @@ import { Plus, Database, Globe, FileClock, Loader2, CheckCircle2, XCircle, Copy 
 import { useAccountStore } from '../../stores/useAccountStore';
 import { useTranslation } from 'react-i18next';
 import { listen } from '@tauri-apps/api/event';
+import { open } from '@tauri-apps/plugin-dialog';
 
 interface AddAccountDialogProps {
     onAdd: (email: string, refreshToken: string) => Promise<void>;
@@ -22,7 +23,7 @@ function AddAccountDialog({ onAdd }: AddAccountDialogProps) {
     const [status, setStatus] = useState<Status>('idle');
     const [message, setMessage] = useState('');
 
-    const { startOAuthLogin, cancelOAuthLogin, importFromDb, importV1Accounts } = useAccountStore();
+    const { startOAuthLogin, cancelOAuthLogin, importFromDb, importV1Accounts, importFromCustomDb } = useAccountStore();
 
     // Reset state when dialog opens or tab changes
     useEffect(() => {
@@ -199,6 +200,27 @@ function AddAccountDialog({ onAdd }: AddAccountDialogProps) {
         handleAction(t('accounts.add.import.btn_v1'), importV1Accounts);
     };
 
+    const handleImportCustomDb = async () => {
+        try {
+            const selected = await open({
+                multiple: false,
+                filters: [{
+                    name: 'VSCode DB',
+                    extensions: ['vscdb']
+                }, {
+                    name: 'All Files',
+                    extensions: ['*']
+                }]
+            });
+
+            if (selected && typeof selected === 'string') {
+                handleAction(t('accounts.add.import.btn_custom_db') || 'Import Custom DB', () => importFromCustomDb(selected));
+            }
+        } catch (err) {
+            console.error('Failed to open dialog:', err);
+        }
+    };
+
     // 状态提示组件
     const StatusAlert = () => {
         if (status === 'idle' || !message) return null;
@@ -350,6 +372,13 @@ function AddAccountDialog({ onAdd }: AddAccountDialogProps) {
                                             disabled={status === 'loading' || status === 'success'}
                                         >
                                             {t('accounts.add.import.btn_db')}
+                                        </button>
+                                        <button
+                                            className="btn btn-outline w-full border-gray-300 dark:border-base-300 text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-base-200 hover:border-gray-400 hover:text-gray-900 dark:hover:text-white mt-2"
+                                            onClick={handleImportCustomDb}
+                                            disabled={status === 'loading' || status === 'success'}
+                                        >
+                                            {t('accounts.add.import.btn_custom_db') || 'Custom DB (state.vscdb)'}
                                         </button>
                                     </div>
 

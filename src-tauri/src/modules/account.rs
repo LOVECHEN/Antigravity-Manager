@@ -473,6 +473,17 @@ pub async fn fetch_quota_with_retry(account: &mut Account) -> crate::error::AppR
     // 2. 尝试查询
     let result = modules::fetch_quota(&account.token.access_token).await;
     
+    // 捕获可能更新的 project_id 并保存
+    if let Ok((ref _q, ref project_id)) = result {
+        if project_id.is_some() && *project_id != account.token.project_id {
+            modules::logger::log_info(&format!("检测到 project_id 更新 ({}), 正在保存...", account.email));
+            account.token.project_id = project_id.clone();
+            if let Err(e) = upsert_account(account.email.clone(), account.name.clone(), account.token.clone()) {
+                modules::logger::log_warn(&format!("同步保存 project_id 失败: {}", e));
+            }
+        }
+    }
+
     // 3. 处理 401 错误 (Handle 401)
     if let Err(AppError::Network(ref e)) = result {
         if let Some(status) = e.status() {
@@ -510,6 +521,15 @@ pub async fn fetch_quota_with_retry(account: &mut Account) -> crate::error::AppR
                 // 重试查询
                 let retry_result = modules::fetch_quota(&new_token.access_token).await;
                 
+                // 同样处理重试时的 project_id 保存
+                if let Ok((ref _q, ref project_id)) = retry_result {
+                    if project_id.is_some() && *project_id != account.token.project_id {
+                        modules::logger::log_info(&format!("检测到重试后 project_id 更新 ({}), 正在保存...", account.email));
+                        account.token.project_id = project_id.clone();
+                        let _ = upsert_account(account.email.clone(), account.name.clone(), account.token.clone());
+                    }
+                }
+
                 if let Err(AppError::Network(ref e)) = retry_result {
                     if let Some(s) = e.status() {
                         if s == StatusCode::FORBIDDEN {
@@ -519,11 +539,11 @@ pub async fn fetch_quota_with_retry(account: &mut Account) -> crate::error::AppR
                         }
                     }
                 }
-                return retry_result;
+                return retry_result.map(|(q, _)| q);
             }
         }
     }
     
     // fetch_quota 已经处理了 403 错误,这里直接返回结果
-    result
+    result.map(|(q, _)| q)
 }

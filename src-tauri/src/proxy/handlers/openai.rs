@@ -6,7 +6,9 @@ use tracing::{debug, error};
 use crate::proxy::mappers::openai::{transform_openai_request, transform_openai_response, OpenAIRequest};
 // use crate::proxy::upstream::client::UpstreamClient; // 通过 state 获取
 use crate::proxy::server::AppState;
-
+ 
+const MAX_RETRY_ATTEMPTS: usize = 3;
+ 
 pub async fn handle_chat_completions(
     State(state): State<AppState>,
     Json(body): Json<Value>
@@ -19,10 +21,11 @@ pub async fn handle_chat_completions(
     // 1. 获取 UpstreamClient (Clone handle)
     let upstream = state.upstream.clone();
     let token_manager = state.token_manager;
-    let max_attempts = token_manager.len().max(1);
+    let pool_size = token_manager.len();
+    let max_attempts = MAX_RETRY_ATTEMPTS.min(pool_size).max(1);
     
     let mut last_error = String::new();
-
+ 
     for attempt in 0..max_attempts {
         // 2. 获取 Token
         let model_group = crate::proxy::common::utils::infer_quota_group(&openai_req.model);
@@ -93,18 +96,21 @@ pub async fn handle_chat_completions(
         let status_code = status.as_u16();
         let error_text = response.text().await.unwrap_or_default();
         last_error = format!("HTTP {}: {}", status_code, error_text);
-
-        if status_code == 429 || status_code == 404 || status_code == 403 || status_code == 401 {
-            tracing::warn!("OpenAI Upstream {} on attempt {}/{}, rotating account", status_code, attempt + 1, max_attempts);
-            if status_code == 401 {
-                // 如果是 401，通知 token_manager 账号可能失效 (这里暂时没有 account_id 可以传)
-                // token_manager.invalidate_token(...) 
+ 
+        // 只有 429 (限流), 403 (权限/地区限制) 和 401 (认证失效) 触发账号轮换
+        if status_code == 429 || status_code == 403 || status_code == 401 {
+            // 如果是 429 且标记为配额耗尽，直接报错，避免穿透整个账号池
+            if status_code == 429 && (error_text.contains("QUOTA_EXHAUSTED") || error_text.contains("quota")) {
+                error!("OpenAI Quota exhausted (429) on attempt {}/{}, stopping to protect pool.", attempt + 1, max_attempts);
+                return Err((status, error_text));
             }
+
+            tracing::warn!("OpenAI Upstream {} on attempt {}/{}, rotating account", status_code, attempt + 1, max_attempts);
             continue;
         }
-
-        // 其他非重试错误直接返回
-        error!("OpenAI Upstream error {}: {}", status_code, error_text);
+ 
+        // 404 等由于模型配置或路径错误的 HTTP 异常，直接报错，不进行无效轮换
+        error!("OpenAI Upstream non-retryable error {}: {}", status_code, error_text);
         return Err((status, error_text));
     }
 

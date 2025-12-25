@@ -3,36 +3,6 @@
 
 use serde_json::Value;
 
-/// 清理 JSON Schema (移除不支持的属性)
-pub fn clean_json_schema(schema: Value) -> Value {
-    let mut cleaned = schema.clone();
-
-    // 移除 additionalProperties (Gemini 不支持)
-    if let Some(obj) = cleaned.as_object_mut() {
-        obj.remove("additionalProperties");
-
-        // 递归处理 properties
-        if let Some(props) = obj.get_mut("properties") {
-            if let Some(props_obj) = props.as_object_mut() {
-                for (_key, value) in props_obj.iter_mut() {
-                    if value.is_object() {
-                        *value = clean_json_schema(value.clone());
-                    }
-                }
-            }
-        }
-
-        // 递归处理 items
-        if let Some(items) = obj.get_mut("items") {
-            if items.is_object() {
-                *items = clean_json_schema(items.clone());
-            }
-        }
-    }
-
-    cleaned
-}
-
 /// 将 JSON Schema 中的类型名称转为大写 (Gemini 要求)
 /// 例如: "string" -> "STRING", "integer" -> "INTEGER"
 pub fn uppercase_schema_types(schema: Value) -> Value {
@@ -94,22 +64,6 @@ pub fn extract_thought_signature(part: &Value) -> Option<String> {
 mod tests {
     use super::*;
     use serde_json::json;
-
-    #[test]
-    fn test_clean_json_schema() {
-        let schema = json!({
-            "type": "object",
-            "properties": {
-                "name": {"type": "string"},
-                "age": {"type": "integer"}
-            },
-            "additionalProperties": false
-        });
-
-        let cleaned = clean_json_schema(schema);
-        assert!(cleaned.get("additionalProperties").is_none());
-        assert!(cleaned.get("properties").is_some());
-    }
 
     #[test]
     fn test_uppercase_schema_types() {

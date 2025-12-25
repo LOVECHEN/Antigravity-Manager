@@ -321,6 +321,24 @@ pub async fn import_from_db(app: tauri::AppHandle) -> Result<Account, String> {
 }
 
 #[tauri::command]
+pub async fn import_custom_db(app: tauri::AppHandle, path: String) -> Result<Account, String> {
+    // 调用重构后的自定义导入函数
+    let mut account = modules::migration::import_from_custom_db_path(path).await?;
+
+    // 自动设为当前账号
+    let account_id = account.id.clone();
+    modules::account::set_current_account_id(&account_id)?;
+    
+    // 自动触发刷新额度
+    let _ = internal_refresh_account_quota(&app, &mut account).await;
+    
+    // 刷新托盘图标展示
+    crate::modules::tray::update_tray_menus(&app);
+
+    Ok(account)
+}
+
+#[tauri::command]
 pub async fn sync_account_from_db(app: tauri::AppHandle) -> Result<Option<Account>, String> {
     // 1. 获取 DB 中的 Refresh Token
     let db_refresh_token = match modules::migration::get_refresh_token_from_db() {

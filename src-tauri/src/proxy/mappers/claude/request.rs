@@ -2,9 +2,11 @@
 // 对应 transformClaudeRequestIn
 
 use super::models::*;
-use crate::proxy::common::model_mapping::map_claude_model_to_gemini;
+// use crate::proxy::common::model_mapping::map_claude_model_to_gemini;
 use serde_json::{json, Value};
 use std::collections::HashMap;
+use once_cell::sync::Lazy;
+use regex::Regex;
 
 /// 转换 Claude 请求为 Gemini v1internal 格式
 pub fn transform_claude_request_in(
@@ -24,14 +26,19 @@ pub fn transform_claude_request_in(
     // 1. System Instruction
     let system_instruction = build_system_instruction(&claude_req.system);
 
+    // 4. Generation Config & Thinking
+    let generation_config = build_generation_config(claude_req, has_web_search_tool);
+    
+    // Check if thinking is enabled
+    let is_thinking_enabled = claude_req.thinking.as_ref()
+        .map(|t| t.type_ == "enabled")
+        .unwrap_or(false);
+
     // 2. Contents (Messages)
-    let contents = build_contents(&claude_req.messages, &mut tool_id_to_name)?;
+    let contents = build_contents(&claude_req.messages, &mut tool_id_to_name, is_thinking_enabled)?;
 
     // 3. Tools
     let tools = build_tools(&claude_req.tools, has_web_search_tool)?;
-
-    // 4. Generation Config & Thinking
-    let generation_config = build_generation_config(claude_req, has_web_search_tool);
 
     // 5. Safety Settings
     let safety_settings = json!([
@@ -151,6 +158,7 @@ fn build_system_instruction(system: &Option<SystemPrompt>) -> Option<Value> {
 fn build_contents(
     messages: &[Message],
     tool_id_to_name: &mut HashMap<String, String>,
+    is_thinking_enabled: bool,
 ) -> Result<Value, String> {
     let mut contents = Vec::new();
 
@@ -163,10 +171,33 @@ fn build_contents(
 
         let mut parts = Vec::new();
 
+        // Regex to extract <thought>...</thought> from strings
+        static THOUGHT_RE: once_cell::sync::Lazy<regex::Regex> = once_cell::sync::Lazy::new(|| {
+            regex::Regex::new(r"(?s)<thought>(.*?)</thought>").unwrap()
+        });
+
         match &msg.content {
             MessageContent::String(text) => {
                 if text != "(no content)" {
-                    parts.push(json!({"text": text}));
+                    let mut actual_text = text.as_str();
+                    
+                    // Try to extract thought from <thought> tags
+                    if let Some(caps) = THOUGHT_RE.captures(text) {
+                        let thought_content = caps.get(1).map_or("", |m| m.as_str());
+                        parts.push(json!({
+                            "text": thought_content,
+                            "thought": true
+                        }));
+                        // Remove thoughts from text for the next part
+                        // (Simple implementation: just take what's after </thought> or keep as is if complex)
+                        if let Some(end_tag_pos) = text.find("</thought>") {
+                            actual_text = &text[end_tag_pos + 10..];
+                        }
+                    }
+                    
+                    if !actual_text.trim().is_empty() {
+                        parts.push(json!({"text": actual_text.trim()}));
+                    }
                 }
             }
             MessageContent::Array(blocks) => {
@@ -234,6 +265,21 @@ fn build_contents(
             }
         }
 
+        // Fix for "Thinking enabled, assistant message must start with thinking block" 400 error
+        if role == "model" && is_thinking_enabled {
+            let has_thought_part = parts.iter().any(|p| {
+                p.get("thought").and_then(|v| v.as_bool()).unwrap_or(false)
+            });
+            
+            if !has_thought_part {
+                // Prepend a dummy thinking block to satisfy Gemini v1internal requirements
+                parts.insert(0, json!({
+                    "text": "Thinking...",
+                    "thought": true
+                }));
+            }
+        }
+
         contents.push(json!({
             "role": role,
             "parts": parts
@@ -266,7 +312,7 @@ fn build_tools(
         let mut function_declarations = Vec::new();
         for tool in tools_list {
             let mut input_schema = serde_json::to_value(&tool.input_schema).unwrap_or(json!({}));
-            clean_json_schema(&mut input_schema);
+            crate::proxy::common::json_schema::clean_json_schema(&mut input_schema);
 
             let tool_decl = json!({
                 "name": tool.name,
@@ -373,7 +419,8 @@ mod tests {
                 "location": {
                     "type": "string",
                     "description": "The city and state, e.g. San Francisco, CA",
-                    "minLength": 1
+                    "minLength": 1,
+                    "exclusiveMinimum": 0
                 },
                 "unit": {
                     "type": ["string", "null"],
@@ -407,66 +454,3 @@ mod tests {
     }
 }
 
-/// 递归清理 JSON Schema 以符合 Gemini 格式
-/// JsonSchema 清理实现
-/// 1. 移除不支持的字段: $schema, additionalProperties, format, default, uniqueItems, validation fields
-/// 2. 处理联合类型: ["string", "null"] -> "string"
-/// 3. 将 type 字段的值转换为大写
-fn clean_json_schema(value: &mut Value) {
-    match value {
-        Value::Object(map) => {
-            // 1. 移除不支持的字段
-            let fields_to_remove = [
-                "$schema",
-                "additionalProperties",
-                "format",
-                "default",
-                "uniqueItems",
-                "minLength",
-                "maxLength",
-                "minimum",
-                "maximum",
-                "minItems",
-                "maxItems",
-            ];
-
-            for field in fields_to_remove {
-                map.remove(field);
-            }
-
-            // 2. 处理 type 字段 (Union Types & Uppercase)
-            if let Some(type_val) = map.get_mut("type") {
-                match type_val {
-                    Value::String(s) => {
-                        *type_val = Value::String(s.to_uppercase());
-                    }
-                    Value::Array(arr) => {
-                        // Handle ["string", "null"] -> select first non-null
-                        let mut selected_type = "STRING".to_string(); // Default fallback
-                        for item in arr {
-                            if let Value::String(s) = item {
-                                if s != "null" {
-                                    selected_type = s.to_uppercase();
-                                    break;
-                                }
-                            }
-                        }
-                        *type_val = Value::String(selected_type);
-                    }
-                    _ => {}
-                }
-            }
-
-            // 递归处理所有子字段
-            for (_, v) in map.iter_mut() {
-                clean_json_schema(v);
-            }
-        }
-        Value::Array(arr) => {
-            for v in arr.iter_mut() {
-                clean_json_schema(v);
-            }
-        }
-        _ => {}
-    }
-}
