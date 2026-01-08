@@ -214,22 +214,20 @@ pub fn resolve_model_route(
             }
         }
         
-        // [NEW] Haiku 智能降级策略
-        // 将所有 Haiku 模型自动降级到 gemini-2.5-flash-lite (最轻量/便宜的模型)
-        // [FIX] 仅在 CLI 模式下生效 (apply_claude_family_mapping == true)
-        if apply_claude_family_mapping && lower_model.contains("haiku") {
-            crate::modules::logger::log_info(&format!("[Router] Haiku 智能降级 (CLI): {} -> gemini-2.5-flash-lite", original_model));
-            return "gemini-2.5-flash-lite".to_string();
-        }
+        // [REMOVED] Haiku 硬编码降级已删除，改为尊重用户的家族分组设置
+        // 如需降级 Haiku，用户可在"专家精确映射"中添加规则
 
-        // 家族匹配逻辑：
-        // - claude-opus-4-*, claude-sonnet-4-*, claude-*-4-5-* → claude-4.5-series
-        // - claude-*-3-5-*, claude-*-3.5-* → claude-3.5-series
+        // 家族匹配逻辑 (优先级低于用户自定义映射)：
+        // - claude-opus-*, claude-sonnet-4-*, claude-*-4-5-*, claude-*-4.5-* → claude-4.5-series
+        // - claude-*-3-5-*, claude-*-3.5-*, claude-haiku-* → claude-3.5-series
+        // 注意：纯 opus/sonnet 默认归入 4.5 系列，haiku 默认归入 3.5 系列
         let family_key = if lower_model.contains("4-5") || lower_model.contains("4.5") 
-            || lower_model.contains("opus-4") || lower_model.contains("sonnet-4") 
-            || lower_model.contains("haiku-4") {
+            || lower_model.contains("opus-4") || lower_model.contains("sonnet-4")
+            || lower_model.contains("opus-") && !lower_model.contains("3")  // claude-opus-* (非 3.x)
+            || lower_model == "claude-opus" || lower_model == "claude-sonnet" {
             "claude-4.5-series"
-        } else if lower_model.contains("3-5") || lower_model.contains("3.5") {
+        } else if lower_model.contains("3-5") || lower_model.contains("3.5")
+            || lower_model.contains("haiku") {  // 所有 haiku 归入 3.5 系列
             "claude-3.5-series"
         } else {
             "claude-default"
