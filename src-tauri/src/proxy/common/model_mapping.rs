@@ -221,17 +221,12 @@ pub fn resolve_model_route(
             return "gemini-2.5-flash-lite".to_string();
         }
 
-        // 家族匹配逻辑 (优先级低于 Haiku 降级和用户自定义映射)：
-        // - claude-opus-*, claude-sonnet-4-*, claude-*-4-5-*, claude-*-4.5-* → claude-4.5-series
-        // - claude-*-3-5-*, claude-*-3.5-*, claude-haiku-* → claude-3.5-series
-        // 注意：纯 opus/sonnet 默认归入 4.5 系列，haiku 默认归入 3.5 系列
-        let family_key = if lower_model.contains("4-5") || lower_model.contains("4.5") 
-            || lower_model.contains("opus-4") || lower_model.contains("sonnet-4")
-            || lower_model.contains("opus-") && !lower_model.contains("3")  // claude-opus-* (非 3.x)
-            || lower_model == "claude-opus" || lower_model == "claude-sonnet" {
+        // 家族匹配逻辑 (简化版)：
+        // - 包含 "opus" 或 "sonnet" → claude-4.5-series (高端模型)
+        // - 包含 "haiku" → claude-3.5-series (轻量模型)
+        let family_key = if lower_model.contains("opus") || lower_model.contains("sonnet") {
             "claude-4.5-series"
-        } else if lower_model.contains("3-5") || lower_model.contains("3.5")
-            || lower_model.contains("haiku") {  // 所有 haiku 归入 3.5 系列
+        } else if lower_model.contains("haiku") {
             "claude-3.5-series"
         } else {
             "claude-default"
