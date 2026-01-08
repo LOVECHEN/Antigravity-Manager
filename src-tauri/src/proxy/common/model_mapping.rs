@@ -214,10 +214,14 @@ pub fn resolve_model_route(
             }
         }
         
-        // [REMOVED] Haiku 硬编码降级已删除，改为尊重用户的家族分组设置
-        // 如需降级 Haiku，用户可在"专家精确映射"中添加规则
+        // [Haiku 智能降级] 默认降级到 gemini-2.5-flash-lite (省钱)
+        // 注意：用户可通过"专家精确映射"覆盖此行为 (custom_mapping 优先级最高)
+        if apply_claude_family_mapping && lower_model.contains("haiku") {
+            crate::modules::logger::log_info(&format!("[Router] Haiku 智能降级 (CLI): {} -> gemini-2.5-flash-lite", original_model));
+            return "gemini-2.5-flash-lite".to_string();
+        }
 
-        // 家族匹配逻辑 (优先级低于用户自定义映射)：
+        // 家族匹配逻辑 (优先级低于 Haiku 降级和用户自定义映射)：
         // - claude-opus-*, claude-sonnet-4-*, claude-*-4-5-*, claude-*-4.5-* → claude-4.5-series
         // - claude-*-3-5-*, claude-*-3.5-*, claude-haiku-* → claude-3.5-series
         // 注意：纯 opus/sonnet 默认归入 4.5 系列，haiku 默认归入 3.5 系列
