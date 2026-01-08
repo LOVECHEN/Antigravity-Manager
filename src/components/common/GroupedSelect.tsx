@@ -30,6 +30,7 @@ export default function GroupedSelect({
     const [dropdownPosition, setDropdownPosition] = useState({ top: 0, left: 0, width: 0 });
     const containerRef = useRef<HTMLDivElement>(null);
     const buttonRef = useRef<HTMLButtonElement>(null);
+    const dropdownRef = useRef<HTMLDivElement>(null);
 
     // 按组分组选项
     const groupedOptions = options.reduce((acc, option) => {
@@ -60,7 +61,9 @@ export default function GroupedSelect({
     // 点击外部关闭下拉菜单
     useEffect(() => {
         const handleClickOutside = (event: MouseEvent) => {
-            if (containerRef.current && !containerRef.current.contains(event.target as Node)) {
+            const clickedInContainer = containerRef.current?.contains(event.target as Node);
+            const clickedInDropdown = dropdownRef.current?.contains(event.target as Node);
+            if (!clickedInContainer && !clickedInDropdown) {
                 setIsOpen(false);
             }
         };
@@ -129,6 +132,7 @@ export default function GroupedSelect({
             {/* 下拉菜单 - 使用 Portal 渲染到 body */}
             {isOpen && createPortal(
                 <div
+                    ref={dropdownRef}
                     style={{
                         position: 'absolute',
                         top: `${dropdownPosition.top}px`,
