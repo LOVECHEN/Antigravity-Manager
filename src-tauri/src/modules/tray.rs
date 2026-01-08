@@ -179,8 +179,9 @@ pub fn update_tray_menus<R: Runtime>(app: &tauri::AppHandle<R>) {
                      if q.is_forbidden {
                          menu_lines.push(format!("🚫 {}", texts.forbidden));
                      } else {
-                         // 提取 3 个指定模型
+                         // 提取 4 个配额池
                          let mut gemini_high = 0;
+                         let mut gemini_flash = 0;
                          let mut gemini_image = 0;
                          let mut claude = 0;
                          
@@ -188,11 +189,13 @@ pub fn update_tray_menus<R: Runtime>(app: &tauri::AppHandle<R>) {
                          for m in q.models {
                              let name = m.name.to_lowercase();
                              if name == "gemini-3-pro-high" { gemini_high = m.percentage; }
+                             if name == "gemini-2.5-flash" { gemini_flash = m.percentage; }
                              if name == "gemini-3-pro-image" { gemini_image = m.percentage; }
                              if name == "claude-sonnet-4-5" { claude = m.percentage; }
                          }
                          
-                         menu_lines.push(format!("Gemini High: {}%", gemini_high));
+                         menu_lines.push(format!("Gemini Pro: {}%", gemini_high));
+                         menu_lines.push(format!("Gemini Flash: {}%", gemini_flash));
                          menu_lines.push(format!("Gemini Image: {}%", gemini_image));
                          menu_lines.push(format!("Claude 4.5: {}%", claude));
                      }
