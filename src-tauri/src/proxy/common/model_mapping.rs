@@ -223,11 +223,10 @@ pub fn resolve_model_route(
 
         // 家族匹配逻辑 (简化版)：
         // - 包含 "opus" 或 "sonnet" → claude-4.5-series (高端模型)
-        // - 包含 "haiku" → claude-3.5-series (轻量模型)
+        // - 其他 claude-* → claude-default
+        // 注意：haiku 已在上方硬降级处理，不会走到这里
         let family_key = if lower_model.contains("opus") || lower_model.contains("sonnet") {
             "claude-4.5-series"
-        } else if lower_model.contains("haiku") {
-            "claude-3.5-series"
         } else {
             "claude-default"
         };
